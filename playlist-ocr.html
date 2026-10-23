@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Скрин плейлиста в текст</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#15121d;--panel:#1f1a2b;--line:#352d47;--text:#ece8f5;--mute:#9a92ad;--acc:#8fd3c4;--accText:#10231f;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 Onest,system-ui,sans-serif;padding:32px 20px 48px}
+main{max-width:980px;margin:0 auto}
+h1{font-size:clamp(1.8rem,4vw,2.6rem);line-height:1.1;margin:0 0 8px;font-weight:700}
+.lead{color:var(--mute);margin:0 0 28px;max-width:60ch}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media(max-width:760px){.grid{grid-template-columns:1fr}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px}
+#drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:260px;border:2px dashed var(--line);border-radius:10px;text-align:center;cursor:pointer;padding:16px;transition:border-color .15s,background .15s}
+#drop:hover,#drop.over,#drop:focus-visible{border-color:var(--acc);background:#251f35;outline:none}
+#drop small{color:var(--mute)}
+#preview{display:none;max-width:100%;max-height:340px;border-radius:8px;margin:0 auto}
+.has-img #preview{display:block}.has-img #dropText{display:none}
+.opts{display:flex;flex-direction:column;gap:8px;margin:16px 0 0;color:var(--mute);font-size:.92rem}
+.opts label{display:flex;gap:8px;align-items:center;cursor:pointer}
+.opts select{background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:4px 8px;font:inherit}
+input[type=checkbox]{accent-color:var(--acc);width:16px;height:16px}
+button{font:inherit;font-weight:500;border:0;border-radius:8px;padding:10px 16px;cursor:pointer;background:var(--acc);color:var(--accText)}
+button.ghost{background:transparent;color:var(--text);border:1px solid var(--line)}
+button:disabled{opacity:.45;cursor:default}
+button:focus-visible{outline:2px solid var(--text);outline-offset:2px}
+.bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:14px}
+#status{color:var(--mute);font-size:.92rem;min-height:1.4em;margin-top:10px}
+progress{width:100%;height:6px;margin-top:8px;accent-color:var(--acc);display:none}
+textarea{width:100%;min-height:340px;resize:vertical;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:12px;font:inherit;line-height:1.6}
+textarea:focus-visible{outline:2px solid var(--acc)}
+.count{color:var(--mute);font-size:.92rem;margin:0 0 10px}
+</style>
+</head>
+<body>
+<main>
+<h1>Скрин плейлиста в текст</h1>
+<p class="lead">Загрузите скриншот, и страница вытащит названия песен списком — по одной на строку. Список можно поправить и скопировать целиком.</p>
+
+<div class="grid">
+  <section class="panel">
+    <div id="drop" tabindex="0" role="button" aria-label="Выбрать скриншот">
+      <div id="dropText"><strong>Перетащите скриншот сюда</strong><br><small>или нажмите, чтобы выбрать файл. Можно вставить из буфера (Ctrl+V)</small></div>
+      <img id="preview" alt="Загруженный скриншот">
+    </div>
+    <input id="file" type="file" accept="image/*" hidden>
+    <div class="opts">
+      <label>Язык на скрине
+        <select id="lang">
+          <option value="rus+eng">Русский + английский</option>
+          <option value="eng">Английский</option>
+          <option value="rus">Русский</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="oNum" checked> Убрать номера в начале строк</label>
+      <label><input type="checkbox" id="oTime" checked> Убрать длительность (3:45)</label>
+      <label><input type="checkbox" id="oDup" checked> Убрать повторы</label>
+      <label><input type="checkbox" id="oPair"> Склеить по две строки (название + исполнитель)</label>
+    </div>
+    <div class="bar"><button id="go" disabled>Распознать</button></div>
+    <progress id="prog" max="1" value="0"></progress>
+    <div id="status" role="status"></div>
+  </section>
+
+  <section class="panel">
+    <p class="count" id="count">Список появится здесь</p>
+    <textarea id="out" spellcheck="false" placeholder="Песни, по одной на строку"></textarea>
+    <div class="bar">
+      <button id="copy" disabled>Скопировать список</button>
+      <button id="dl" class="ghost" disabled>Скачать .txt</button>
+    </div>
+  </section>
+</div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+let currentFile = null, rawText = '';
+
+function setFile(f){
+  if(!f || !f.type.startsWith('image/')) return;
+  currentFile = f;
+  $('preview').src = URL.createObjectURL(f);
+  $('drop').classList.add('has-img');
+  $('go').disabled = false;
+  $('status').textContent = 'Скриншот загружен. Нажмите «Распознать».';
+}
+$('drop').onclick = () => $('file').click();
+$('drop').onkeydown = e => { if(e.key==='Enter'||e.key===' '){e.preventDefault();$('file').click();} };
+$('file').onchange = e => setFile(e.target.files[0]);
+['dragover','dragenter'].forEach(t => $('drop').addEventListener(t, e => {e.preventDefault();$('drop').classList.add('over');}));
+['dragleave','drop'].forEach(t => $('drop').addEventListener(t, e => {e.preventDefault();$('drop').classList.remove('over');}));
+$('drop').addEventListener('drop', e => setFile(e.dataTransfer.files[0]));
+window.addEventListener('paste', e => {
+  const item = [...(e.clipboardData?.items||[])].find(i => i.type.startsWith('image/'));
+  if(item) setFile(item.getAsFile());
+});
+
+// Подготовка картинки: увеличить мелкий скрин, тёмную тему инвертировать в чёрный текст на белом
+async function prepare(file){
+  const bmp = await createImageBitmap(file);
+  const k = bmp.width < 1400 ? 2 : 1;
+  const c = document.createElement('canvas');
+  c.width = bmp.width*k; c.height = bmp.height*k;
+  const ctx = c.getContext('2d', {willReadFrequently:true});
+  ctx.drawImage(bmp, 0, 0, c.width, c.height);
+  const img = ctx.getImageData(0, 0, c.width, c.height), d = img.data;
+  let sum = 0;
+  for(let i=0;i<d.length;i+=4){ d[i] = d[i+1] = d[i+2] = (d[i]*0.3 + d[i+1]*0.59 + d[i+2]*0.11); sum += d[i]; }
+  const dark = sum/(d.length/4) < 128;
+  if(dark) for(let i=0;i<d.length;i+=4){ d[i]=d[i+1]=d[i+2]=255-d[i]; }
+  ctx.putImageData(img, 0, 0);
+  return c;
+}
+
+function buildList(){
+  let lines = rawText.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  lines = lines.map(s => {
+    if($('oTime').checked) s = s.replace(/\b\d{1,2}:\d{2}(:\d{2})?\b/g, '');
+    if($('oNum').checked) s = s.replace(/^\s*\d{1,3}\s*[.)\-]?\s+/, '');
+    s = s.replace(/[^\p{L}\p{N}\s\-–—&.,'’()!?\/+:]/gu, ' ');
+    return s.replace(/\s{2,}/g, ' ').trim();
+  }).filter(s => s.length > 1 && /[\p{L}\p{N}]/u.test(s));
+  if($('oPair').checked){
+    const pairs = [];
+    for(let i=0;i<lines.length;i+=2) pairs.push(lines[i+1] ? lines[i+1] + ' — ' + lines[i] : lines[i]);
+    lines = pairs;
+  }
+  if($('oDup').checked) lines = [...new Set(lines)];
+  $('out').value = lines.join('\n');
+  updateCount();
+}
+function updateCount(){
+  const n = $('out').value.split('\n').filter(s => s.trim()).length;
+  $('count').textContent = n ? 'Найдено строк: ' + n : 'Ничего не найдено. Попробуйте скриншот покрупнее.';
+  $('copy').disabled = $('dl').disabled = !n;
+}
+$('out').oninput = updateCount;
+['oNum','oTime','oDup','oPair'].forEach(id => $(id).onchange = () => { if(rawText) buildList(); });
+
+$('go').onclick = async () => {
+  if(!currentFile) return;
+  $('go').disabled = true;
+  $('prog').style.display = 'block'; $('prog').value = 0;
+  $('status').textContent = 'Готовлю картинку…';
+  try{
+    const canvas = await prepare(currentFile);
+    const res = await Tesseract.recognize(canvas, $('lang').value, {
+      logger: m => {
+        if(m.status === 'recognizing text'){ $('prog').value = m.progress; $('status').textContent = 'Распознаю: ' + Math.round(m.progress*100) + '%'; }
+        else $('status').textContent = 'Загружаю модель распознавания…';
+      }
+    });
+    rawText = res.data.text;
+    buildList();
+    $('status').textContent = 'Готово. Проверьте список и поправьте ошибки, если они есть.';
+  }catch(err){
+    $('status').textContent = 'Не получилось распознать. Нужен интернет для загрузки модели; проверьте соединение и попробуйте ещё раз.';
+  }
+  $('prog').style.display = 'none';
+  $('go').disabled = false;
+};
+
+$('copy').onclick = async () => {
+  const t = $('out').value;
+  try{ await navigator.clipboard.writeText(t); }
+  catch(e){ $('out').select(); document.execCommand('copy'); }
+  $('copy').textContent = 'Скопировано';
+  setTimeout(() => $('copy').textContent = 'Скопировать список', 1500);
+};
+$('dl').onclick = () => {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([$('out').value], {type:'text/plain;charset=utf-8'}));
+  a.download = 'playlist.txt';
+  a.click();
+};
+</script>
+</body>
+</html>
